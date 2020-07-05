@@ -90,6 +90,59 @@ public class Player : MonoBehaviour
     [Tooltip("Upward velocity provided on jump.")]
     public float jumpPower = 76;
 
+    [Header("Wall Jumping")]
+    [Tooltip("Outward velocity provided by wall jumping.")]
+    public float wallJumpPower = 40;
+
+    [Tooltip("Upward velocity provided by wall jumping.")]
+    public float wallJumpAir = 56;
+
+    [Tooltip("Maximum distance from the player's side that a wall can be detected for a wall jump.")]
+    public float wallDetectionRange = 2.4f;
+
+    [Tooltip("Cooldown time for wall jumps, in seconds.")]
+    public float wallJumpCooldown = .3f;
+
+    [Tooltip("Only layers included in this mask will count as walls that can be jumped off.")]
+    public LayerMask wallDetectionLayerMask;
+
+    //Time.time when we last performed a wall jump.
+    private float lastWallJumpTime;
+
+    //Returns true if wall jump is not on cooldown, false if it is on cooldown. 
+    private bool WallJumpIsOffCooldown
+    {
+        get
+        {
+            //Current time must be greater than the last wall jump time, plus wall jump cooldown:
+            return Time.time > lastWallJumpTime + wallJumpCooldown;
+        }
+    }
+
+    //Methods:
+    private bool WallIsNearby()
+    {
+        return Physics.OverlapBox(
+            trans.position + Vector3.up * (charController.height * .5f),
+            Vector3.one * wallDetectionRange,
+            modelHolder.rotation,
+            wallDetectionLayerMask.value).Length > 0;
+    }
+    
+    public void AddVelocity(Vector3 amount)
+    {
+        //Add the velocity X and Z to our 'worldVelocity':
+        worldVelocity += new Vector3(amount.x,0,amount.z);
+        
+        //Add the velocity Y to our 'yVelocity':
+        yVelocity += amount.y;
+
+        //Ensure that we become midair if our Y velocity was raised above 0.
+        //If we don't do this, it will be set to -1 again in ApplyVelocity if we are grounded.
+        if (yVelocity > 0)
+            grounded = false;
+    }
+
     //Update Logic:
     void Movement()
     {
@@ -174,6 +227,39 @@ public class Player : MonoBehaviour
             yVelocity = Mathf.Max(yVelocity - GravityPerSecond * Time.deltaTime,-maxGravity);
     }
 
+    void WallJumping()
+    {
+        //If midair and wall jump is off cooldown:
+        if (!grounded && WallJumpIsOffCooldown)
+        {
+            //If space is pressed:
+            if (Input.GetKeyDown(KeyCode.Space))
+            {
+                //Make sure a wall is nearby to jump off:
+                if (WallIsNearby())
+                {
+                    //If any movement keys are held,
+                    if (localMovementDirection != Vector3.zero)
+                        //Apply outward movement by converting local movement direction to world-space
+                        // relative to the model holder, and multiplying by wall jump power:
+                        worldVelocity = modelHolder.TransformDirection(localMovementDirection) * wallJumpPower;
+                    
+                    //We'll also apply Y velocity.  If we're falling,
+                    if (yVelocity <= 0)
+                        // all downward momentum is replaced with the wall jump air:
+                        yVelocity = wallJumpAir;
+                    
+                    //If not falling, just add wall jump air to existing velocity:
+                    else
+                        yVelocity += wallJumpAir;
+
+                    //Apply wall jump cooldown:
+                    lastWallJumpTime = Time.time;
+                }
+            }
+        }
+    }
+
     void Jumping()
     {
         if (grounded && Input.GetKeyDown(KeyCode.Space))
@@ -185,7 +271,6 @@ public class Player : MonoBehaviour
             grounded = false;
         }
     }
-
 
     void ApplyVelocity()
     {
@@ -226,6 +311,8 @@ public class Player : MonoBehaviour
         VelocityLoss();
 
         Gravity();
+
+        WallJumping();
 
         Jumping();
 
